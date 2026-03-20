@@ -92,20 +92,25 @@ def aggregate_data(df, kpis, daily=False, group=False):
     if daily:
         df["Date"] = df["Begin Time"].dt.normalize()
     
-        # Count samples per day
-        counts = df.groupby("Date").size()
+        # Detect sampling interval (in minutes)
+        time_diffs = df["Begin Time"].sort_values().diff().dropna()
+        freq_minutes = int(time_diffs.mode()[0].total_seconds() / 60)
     
-        expected_samples = counts.max()  # usually 24 (hourly) or 96 (15-min)
+        # Expected samples per day
+        expected_samples = int(1440 / freq_minutes)
+    
+        # Count actual samples per day
+        counts = df.groupby("Date").size()
     
         # Identify first & last day
         first_day = counts.index.min()
         last_day = counts.index.max()
     
         # Remove ONLY if incomplete
-        if counts[first_day] < expected_samples:
+        if counts.get(first_day, 0) < expected_samples:
             df = df[df["Date"] != first_day]
     
-        if counts[last_day] < expected_samples:
+        if counts.get(last_day, 0) < expected_samples:
             df = df[df["Date"] != last_day]
     
         time_col = "Date"
