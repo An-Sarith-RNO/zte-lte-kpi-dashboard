@@ -73,33 +73,31 @@ if cell_selected:
     plot_df = plot_df[plot_df["Cell Name"].isin(cell_selected)]
 
 # ✅ Remove ONLY first & last incomplete day
+# ---------------- REMOVE INCOMPLETE DAYS (DAILY) ----------------
 if daily_option:
 
+    # Create Date column
     plot_df["Date"] = plot_df["Begin Time"].dt.normalize()
 
-    expected_samples = 24  # hourly
+    expected_samples = 24  # hourly data
 
-    # Count per Date + Cell
-    counts = plot_df.groupby(["Date", "Cell Name"]).size().reset_index(name="count")
+    # Count samples per Date + Cell
+    counts = (
+        plot_df
+        .groupby(["Date", "Cell Name"])
+        .size()
+        .reset_index(name="count")
+    )
 
-    # Find valid (complete) combinations
+    # Keep only complete cells (>= 24 samples)
     valid = counts[counts["count"] >= expected_samples]
 
-    # Keep only valid data
+    # Merge back to original dataframe
     plot_df = plot_df.merge(
         valid[["Date", "Cell Name"]],
         on=["Date", "Cell Name"],
         how="inner"
     )
-
-    # Now remove first & last day globally (optional clean)
-    remaining_days = sorted(plot_df["Date"].unique())
-
-    if len(remaining_days) > 2:
-        plot_df = plot_df[
-            (plot_df["Date"] != remaining_days[0]) &
-            (plot_df["Date"] != remaining_days[-1])
-        ]
 # ---------------- AGGREGATION ----------------
 def aggregate_data(df, kpis, daily=False, group=False):
 
