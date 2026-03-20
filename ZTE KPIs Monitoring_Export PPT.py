@@ -104,38 +104,46 @@ def aggregate_data(df, kpis, daily=False, group=False):
     for kpi in kpis:
         df[kpi] = pd.to_numeric(df[kpi], errors="coerce")
 
-    agg_dict = {}
-
-    for kpi in kpis:
-        if kpi in [
-            "DL Data Total Volume (Gbyte)",
-            "UL Data Total Volume (Gbyte)",
-            "Total Data Total Volume (Gbyte)",
-            "Ave RRC Connected Ue",
-            "Max RRC Connected Ue"
-        ]:
-            agg_dict[kpi] = "sum"
-        else:
-            agg_dict[kpi] = "mean"
-
     if daily:
         df["Date"] = df["Begin Time"].dt.normalize()
         time_col = "Date"
     else:
         time_col = "Begin Time"
 
-    if not group:
-        group_cols = [time_col]
+    # ---------------- STEP 1: Aggregate per CELL ----------------
+    agg_dict_cell = {}
 
-        if "Cell Name" in df.columns:
-            group_cols.append("Cell Name")
+    for kpi in kpis:
+        if kpi in [
+            "DL Data Total Volume (Gbyte)",
+            "UL Data Total Volume (Gbyte)",
+            "Total Data Total Volume (Gbyte)"
+        ]:
+            agg_dict_cell[kpi] = "sum"   # volume
+        else:
+            agg_dict_cell[kpi] = "mean"  # rate per cell
 
-        grouped = df.groupby(group_cols, as_index=False).agg(agg_dict)
+    cell_level = df.groupby([time_col, "Cell Name"], as_index=False).agg(agg_dict_cell)
+
+    # ---------------- STEP 2: Aggregate across cells ----------------
+    agg_dict_site = {}
+
+    for kpi in kpis:
+        if kpi in [
+            "DL Data Total Volume (Gbyte)",
+            "UL Data Total Volume (Gbyte)",
+            "Total Data Total Volume (Gbyte)"
+        ]:
+            agg_dict_site[kpi] = "sum"   # sum across cells
+        else:
+            agg_dict_site[kpi] = "mean"  # average across cells
+
+    if group:
+        final = cell_level.groupby([time_col], as_index=False).agg(agg_dict_site)
     else:
-        grouped = df.groupby([time_col], as_index=False).agg(agg_dict)
+        final = cell_level
 
-    return grouped
-
+    return final
 plot_df = aggregate_data(plot_df, selected_kpis, daily_option, group_option)
 
 time_col = "Date" if daily_option else "Begin Time"
