@@ -5,7 +5,6 @@ import plotly.graph_objects as go
 import plotly.express as px
 from pptx import Presentation
 from pptx.util import Inches
-import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
 
@@ -36,19 +35,22 @@ st.title("📊 LTE KPI Dashboard")
 
 # ---------------- KPI SELECTION ----------------
 kpi_columns = [col for col in df.columns if col not in ["Begin Time","ENBFunction Name","Cell Name"]]
+
 selected_kpis = st.multiselect(
     "Select KPI(s)",
     options=kpi_columns,
     default=kpi_columns[:4]
 )
 
-# 🎯 Ensure consistent order (fix color shifting)
+# ✅ Fix color consistency
 selected_kpis = sorted(selected_kpis)
 
-# ---------------- SITE FILTER ----------------
-enodeb_selected = st.multiselect("Select ENBFunction Name", options=sorted(df["ENBFunction Name"].unique()))
+# ---------------- FILTER ----------------
+enodeb_selected = st.multiselect(
+    "Select ENBFunction Name",
+    options=sorted(df["ENBFunction Name"].unique())
+)
 
-# ---------------- CELL FILTER ----------------
 if enodeb_selected:
     cell_options = sorted(df[df["ENBFunction Name"].isin(enodeb_selected)]["Cell Name"].unique())
 else:
@@ -63,11 +65,31 @@ group_option = st.checkbox("🏙️ Group by Site")
 # ---------------- FILTER DATAFRAME ----------------
 plot_df = df.copy()
 
+# ✅ Apply filters FIRST
 if enodeb_selected:
     plot_df = plot_df[plot_df["ENBFunction Name"].isin(enodeb_selected)]
 
 if cell_selected:
     plot_df = plot_df[plot_df["Cell Name"].isin(cell_selected)]
+
+# ✅ Remove ONLY first & last incomplete day
+if daily_option:
+
+    plot_df["Date"] = plot_df["Begin Time"].dt.normalize()
+
+    expected_samples = 24  # hourly data
+
+    counts = plot_df.groupby("Date").size()
+
+    if not counts.empty:
+        first_day = counts.index.min()
+        last_day = counts.index.max()
+
+        if counts[first_day] < expected_samples:
+            plot_df = plot_df[plot_df["Date"] != first_day]
+
+        if counts[last_day] < expected_samples:
+            plot_df = plot_df[plot_df["Date"] != last_day]
 
 # ---------------- AGGREGATION ----------------
 def aggregate_data(df, kpis, daily=False, group=False):
@@ -91,23 +113,6 @@ def aggregate_data(df, kpis, daily=False, group=False):
 
     if daily:
         df["Date"] = df["Begin Time"].dt.normalize()
-    
-        # ✅ FIX: assume hourly data
-        expected_samples = 24
-    
-        counts = df.groupby("Date").size()
-    
-        first_day = counts.index.min()
-        last_day = counts.index.max()
-    
-        # 🚫 Remove first day if incomplete
-        if counts[first_day] < expected_samples:
-            df = df[df["Date"] != first_day]
-    
-        # 🚫 Remove last day if incomplete
-        if counts[last_day] < expected_samples:
-            df = df[df["Date"] != last_day]
-    
         time_col = "Date"
     else:
         time_col = "Begin Time"
@@ -119,7 +124,6 @@ def aggregate_data(df, kpis, daily=False, group=False):
             group_cols.append("Cell Name")
 
         grouped = df.groupby(group_cols, as_index=False).agg(agg_dict)
-
     else:
         grouped = df.groupby([time_col], as_index=False).agg(agg_dict)
 
@@ -136,21 +140,20 @@ plot_df["Time_str"] = plot_df[time_col].dt.strftime(
     "%Y-%m-%d" if daily_option else "%Y-%m-%d %H:%M"
 )
 
-# ---------------- DASHBOARD (PLOTLY) ----------------
-# ---------------- DASHBOARD (PLOTLY) ----------------
+# ---------------- DASHBOARD ----------------
 figures_png = []
 
 if not plot_df.empty:
 
     colors = px.colors.qualitative.Dark24
 
-    # 🎯 KPI color map (ALWAYS needed)
+    # KPI color map
     kpi_color_map = {
         kpi: colors[i % len(colors)]
-        for i, kpi in enumerate(sorted(selected_kpis))
+        for i, kpi in enumerate(selected_kpis)
     }
 
-    # 🎯 Cell color map (ONLY for non-group mode)
+    # Cell color map
     if not group_option and "Cell Name" in plot_df.columns:
         unique_cells = sorted(plot_df["Cell Name"].unique())
         color_map = {
@@ -164,11 +167,10 @@ if not plot_df.empty:
 
         fig = go.Figure()
 
-        # ---------- PLOTLY DASHBOARD GRAPH ----------
+        # -------- CELL MODE --------
         if not group_option and "Cell Name" in plot_df.columns:
 
             for cell in sorted(plot_df["Cell Name"].unique()):
-
                 cell_df = plot_df[plot_df["Cell Name"] == cell]
 
                 fig.add_trace(
@@ -181,15 +183,15 @@ if not plot_df.empty:
                     )
                 )
 
+        # -------- SITE MODE --------
         else:
-
             fig.add_trace(
                 go.Scatter(
                     x=plot_df["Time_str"],
                     y=plot_df[selected_kpi],
                     mode="lines+markers",
                     name=selected_kpi,
-                    line=dict(color=colors[0])
+                    line=dict(color=colors[0])  # same color for all KPIs
                 )
             )
 
@@ -197,29 +199,19 @@ if not plot_df.empty:
             height=420,
             width=900,
             title=dict(text=selected_kpi, x=0.5),
-            hovermode="x unified",
-            margin=dict(l=40, r=120, t=60, b=40)
+            hovermode="x unified"
         )
 
-        # Show in Streamlit
-        cols[idx % 2].plotly_chart(fig, use_container_width=False)
+        cols[idx % 2].plotly_chart(fig)
 
-        # ---------- EXPORT SAME FIGURE TO PNG ----------
-        img_bytes = fig.to_image(
-            format="png",
-            width=900,
-            height=420,
-            scale=2
-        )
-
-        buf = io.BytesIO(img_bytes)
-        figures_png.append(buf)
+        # Export image
+        img_bytes = fig.to_image(format="png", width=900, height=420, scale=2)
+        figures_png.append(io.BytesIO(img_bytes))
 
 # ---------------- CREATE PPT ----------------
 def create_ppt(figures_png):
 
     prs = Presentation()
-
     prs.slide_width = Inches(13.33)
     prs.slide_height = Inches(7.5)
 
@@ -230,35 +222,27 @@ def create_ppt(figures_png):
         (Inches(6.9), Inches(4.0))
     ]
 
-    chart_width = Inches(6.08)
-    chart_height = Inches(3.04)
-
     for idx, buf in enumerate(figures_png):
 
         if idx % 4 == 0:
             slide = prs.slides.add_slide(prs.slide_layouts[5])
 
-        pos_idx = idx % 4
-
         slide.shapes.add_picture(
             buf,
-            positions[pos_idx][0],
-            positions[pos_idx][1],
-            width=chart_width,
-            height=chart_height
+            positions[idx % 4][0],
+            positions[idx % 4][1],
+            width=Inches(6.08),
+            height=Inches(3.04)
         )
 
     ppt_buffer = io.BytesIO()
-
     prs.save(ppt_buffer)
-
     ppt_buffer.seek(0)
 
     return ppt_buffer
 
-# ---------------- DOWNLOAD PPT ----------------
+# ---------------- DOWNLOAD ----------------
 if figures_png:
-
     ppt_file = create_ppt(figures_png)
 
     st.download_button(
@@ -267,11 +251,5 @@ if figures_png:
         file_name="LTE_KPI_Report.pptx",
         mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
     )
-
 else:
-
     st.warning("⚠️ No data available for the selected filters.")
-
-
-
-
