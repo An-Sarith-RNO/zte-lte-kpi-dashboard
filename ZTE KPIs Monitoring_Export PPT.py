@@ -77,20 +77,29 @@ if daily_option:
 
     plot_df["Date"] = plot_df["Begin Time"].dt.normalize()
 
-    expected_samples = 24  # hourly data
+    expected_samples = 24  # hourly
 
-    counts = plot_df.groupby("Date").size()
+    # Count per Date + Cell
+    counts = plot_df.groupby(["Date", "Cell Name"]).size().reset_index(name="count")
 
-    if not counts.empty:
-        first_day = counts.index.min()
-        last_day = counts.index.max()
+    # Find valid (complete) combinations
+    valid = counts[counts["count"] >= expected_samples]
 
-        if counts[first_day] < expected_samples:
-            plot_df = plot_df[plot_df["Date"] != first_day]
+    # Keep only valid data
+    plot_df = plot_df.merge(
+        valid[["Date", "Cell Name"]],
+        on=["Date", "Cell Name"],
+        how="inner"
+    )
 
-        if counts[last_day] < expected_samples:
-            plot_df = plot_df[plot_df["Date"] != last_day]
+    # Now remove first & last day globally (optional clean)
+    remaining_days = sorted(plot_df["Date"].unique())
 
+    if len(remaining_days) > 2:
+        plot_df = plot_df[
+            (plot_df["Date"] != remaining_days[0]) &
+            (plot_df["Date"] != remaining_days[-1])
+        ]
 # ---------------- AGGREGATION ----------------
 def aggregate_data(df, kpis, daily=False, group=False):
 
