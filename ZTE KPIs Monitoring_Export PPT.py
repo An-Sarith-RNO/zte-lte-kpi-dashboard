@@ -42,7 +42,6 @@ selected_kpis = st.multiselect(
     default=kpi_columns[:4]
 )
 
-# ✅ Fix color consistency
 selected_kpis = sorted(selected_kpis)
 
 # ---------------- FILTER ----------------
@@ -65,20 +64,18 @@ group_option = st.checkbox("🏙️ Group by Site")
 # ---------------- FILTER DATAFRAME ----------------
 plot_df = df.copy()
 
-# ✅ Apply filters FIRST
 if enodeb_selected:
     plot_df = plot_df[plot_df["ENBFunction Name"].isin(enodeb_selected)]
 
 if cell_selected:
     plot_df = plot_df[plot_df["Cell Name"].isin(cell_selected)]
 
-# ✅ Remove ONLY first & last incomplete day
-# ---------------- REMOVE INCOMPLETE DAYS (CORRECT) ----------------
+# ---------------- REMOVE INCOMPLETE DAYS ----------------
 if daily_option:
 
     plot_df["Date"] = plot_df["Begin Time"].dt.normalize()
 
-    expected_samples = 24  # hourly
+    expected_samples = 24
 
     counts = (
         plot_df
@@ -87,39 +84,30 @@ if daily_option:
         .reset_index(name="count")
     )
 
-    # Total cells per day
     total_cells = counts.groupby("Date")["Cell Name"].nunique()
-
-    # Cells that are complete
     valid_cells = counts[counts["count"] >= expected_samples]
-
-    # Valid cells per day
     valid_counts = valid_cells.groupby("Date")["Cell Name"].nunique()
 
-    # Keep ONLY days where all cells are complete
     complete_days = valid_counts[valid_counts == total_cells].index
 
     plot_df = plot_df[plot_df["Date"].isin(complete_days)]
 
-# ---------------- AGGREGATION ----------------def aggregate_data(df, kpis, daily=False, group=False):
+# ---------------- AGGREGATION ----------------
+def aggregate_data(df, kpis, daily=False, group=False):
 
-    # Convert KPI columns to numeric
     for kpi in kpis:
         df[kpi] = pd.to_numeric(df[kpi], errors="coerce")
 
-    # ---------------- TIME COLUMN ----------------
     if daily:
         df["Date"] = df["Begin Time"].dt.normalize()
         time_col = "Date"
     else:
         time_col = "Begin Time"
 
-    # ---------------- DAILY MODE ----------------
+    # -------- DAILY MODE --------
     if daily:
 
-        # STEP 1: Aggregate per cell per day
         agg_cell = {}
-
         for kpi in kpis:
             if kpi in [
                 "DL Data Total Volume (Gbyte)",
@@ -134,11 +122,8 @@ if daily_option:
 
         cell_level = df.groupby([time_col, "Cell Name"], as_index=False).agg(agg_cell)
 
-        # STEP 2: Site aggregation
         if group:
-
             agg_site = {}
-
             for kpi in kpis:
                 if kpi in [
                     "DL Data Total Volume (Gbyte)",
@@ -152,18 +137,14 @@ if daily_option:
                     agg_site[kpi] = "mean"
 
             final_df = cell_level.groupby([time_col], as_index=False).agg(agg_site)
-
         else:
             final_df = cell_level
 
-    # ---------------- HOURLY MODE ----------------
+    # -------- HOURLY MODE --------
     else:
 
-        # ❗ DO NOT re-aggregate per cell
         if group:
-
             agg_site = {}
-
             for kpi in kpis:
                 if kpi in [
                     "DL Data Total Volume (Gbyte)",
@@ -177,11 +158,11 @@ if daily_option:
                     agg_site[kpi] = "mean"
 
             final_df = df.groupby([time_col], as_index=False).agg(agg_site)
-
         else:
             final_df = df.copy()
 
     return final_df
+
 plot_df = aggregate_data(plot_df, selected_kpis, daily_option, group_option)
 
 time_col = "Date" if daily_option else "Begin Time"
@@ -200,13 +181,6 @@ if not plot_df.empty:
 
     colors = px.colors.qualitative.Dark24
 
-    # KPI color map
-    kpi_color_map = {
-        kpi: colors[i % len(colors)]
-        for i, kpi in enumerate(selected_kpis)
-    }
-
-    # Cell color map
     if not group_option and "Cell Name" in plot_df.columns:
         unique_cells = sorted(plot_df["Cell Name"].unique())
         color_map = {
@@ -220,7 +194,6 @@ if not plot_df.empty:
 
         fig = go.Figure()
 
-        # -------- CELL MODE --------
         if not group_option and "Cell Name" in plot_df.columns:
 
             for cell in sorted(plot_df["Cell Name"].unique()):
@@ -236,7 +209,6 @@ if not plot_df.empty:
                     )
                 )
 
-        # -------- SITE MODE --------
         else:
             fig.add_trace(
                 go.Scatter(
@@ -244,7 +216,7 @@ if not plot_df.empty:
                     y=plot_df[selected_kpi],
                     mode="lines+markers",
                     name=selected_kpi,
-                    line=dict(color=colors[0])  # same color for all KPIs
+                    line=dict(color=colors[0])
                 )
             )
 
@@ -257,7 +229,6 @@ if not plot_df.empty:
 
         cols[idx % 2].plotly_chart(fig)
 
-        # Export image
         img_bytes = fig.to_image(format="png", width=900, height=420, scale=2)
         figures_png.append(io.BytesIO(img_bytes))
 
