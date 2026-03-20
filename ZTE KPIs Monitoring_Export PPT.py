@@ -88,8 +88,12 @@ if daily_option:
     valid_cells = counts[counts["count"] >= expected_samples]
     valid_counts = valid_cells.groupby("Date")["Cell Name"].nunique()
 
-    complete_days = valid_counts[valid_counts == total_cells].index
-
+    # Align both Series (fill missing with 0)
+    valid_counts = valid_counts.reindex(total_cells.index, fill_value=0)
+    
+    # Now safe comparison
+    complete_days = total_cells.index[valid_counts == total_cells]
+    
     plot_df = plot_df[plot_df["Date"].isin(complete_days)]
 
 # ---------------- AGGREGATION ----------------
