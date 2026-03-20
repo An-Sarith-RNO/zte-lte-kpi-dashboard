@@ -73,15 +73,13 @@ if cell_selected:
     plot_df = plot_df[plot_df["Cell Name"].isin(cell_selected)]
 
 # ✅ Remove ONLY first & last incomplete day
-# ---------------- REMOVE INCOMPLETE DAYS (DAILY) ----------------
+# ---------------- REMOVE INCOMPLETE DAYS (CORRECT) ----------------
 if daily_option:
 
-    # Create Date column
     plot_df["Date"] = plot_df["Begin Time"].dt.normalize()
 
-    expected_samples = 24  # hourly data
+    expected_samples = 24  # hourly
 
-    # Count samples per Date + Cell
     counts = (
         plot_df
         .groupby(["Date", "Cell Name"])
@@ -89,61 +87,75 @@ if daily_option:
         .reset_index(name="count")
     )
 
-    # Keep only complete cells (>= 24 samples)
-    valid = counts[counts["count"] >= expected_samples]
+    # Total cells per day
+    total_cells = counts.groupby("Date")["Cell Name"].nunique()
 
-    # Merge back to original dataframe
-    plot_df = plot_df.merge(
-        valid[["Date", "Cell Name"]],
-        on=["Date", "Cell Name"],
-        how="inner"
-    )
+    # Cells that are complete
+    valid_cells = counts[counts["count"] >= expected_samples]
+
+    # Valid cells per day
+    valid_counts = valid_cells.groupby("Date")["Cell Name"].nunique()
+
+    # Keep ONLY days where all cells are complete
+    complete_days = valid_counts[valid_counts == total_cells].index
+
+    plot_df = plot_df[plot_df["Date"].isin(complete_days)]
+
 # ---------------- AGGREGATION ----------------
 def aggregate_data(df, kpis, daily=False, group=False):
 
+    # Convert KPI columns to numeric
     for kpi in kpis:
         df[kpi] = pd.to_numeric(df[kpi], errors="coerce")
 
+    # ---------------- TIME COLUMN ----------------
     if daily:
         df["Date"] = df["Begin Time"].dt.normalize()
         time_col = "Date"
     else:
         time_col = "Begin Time"
 
-    # ---------------- STEP 1: Aggregate per CELL ----------------
-    agg_dict_cell = {}
+    # ---------------- STEP 1: AGGREGATE PER CELL ----------------
+    agg_cell = {}
 
     for kpi in kpis:
         if kpi in [
             "DL Data Total Volume (Gbyte)",
             "UL Data Total Volume (Gbyte)",
-            "Total Data Total Volume (Gbyte)"
+            "Total Data Total Volume (Gbyte)",
+            "Ave RRC Connected Ue",
+            "Max RRC Connected Ue"
         ]:
-            agg_dict_cell[kpi] = "sum"   # volume
+            agg_cell[kpi] = "sum"   # volume / counters
         else:
-            agg_dict_cell[kpi] = "mean"  # rate per cell
+            agg_cell[kpi] = "mean"  # PRB / rate KPIs
 
-    cell_level = df.groupby([time_col, "Cell Name"], as_index=False).agg(agg_dict_cell)
+    # Aggregate per cell first
+    cell_level = df.groupby([time_col, "Cell Name"], as_index=False).agg(agg_cell)
 
-    # ---------------- STEP 2: Aggregate across cells ----------------
-    agg_dict_site = {}
-
-    for kpi in kpis:
-        if kpi in [
-            "DL Data Total Volume (Gbyte)",
-            "UL Data Total Volume (Gbyte)",
-            "Total Data Total Volume (Gbyte)"
-        ]:
-            agg_dict_site[kpi] = "sum"   # sum across cells
-        else:
-            agg_dict_site[kpi] = "mean"  # average across cells
-
+    # ---------------- STEP 2: SITE AGGREGATION ----------------
     if group:
-        final = cell_level.groupby([time_col], as_index=False).agg(agg_dict_site)
-    else:
-        final = cell_level
 
-    return final
+        agg_site = {}
+
+        for kpi in kpis:
+            if kpi in [
+                "DL Data Total Volume (Gbyte)",
+                "UL Data Total Volume (Gbyte)",
+                "Total Data Total Volume (Gbyte)",
+                "Ave RRC Connected Ue",
+                "Max RRC Connected Ue"
+            ]:
+                agg_site[kpi] = "sum"   # sum across cells
+            else:
+                agg_site[kpi] = "mean"  # average across cells
+
+        final_df = cell_level.groupby([time_col], as_index=False).agg(agg_site)
+
+    else:
+        final_df = cell_level
+
+    return final_df
 plot_df = aggregate_data(plot_df, selected_kpis, daily_option, group_option)
 
 time_col = "Date" if daily_option else "Begin Time"
