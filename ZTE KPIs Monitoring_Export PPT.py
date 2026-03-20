@@ -101,8 +101,7 @@ if daily_option:
 
     plot_df = plot_df[plot_df["Date"].isin(complete_days)]
 
-# ---------------- AGGREGATION ----------------
-def aggregate_data(df, kpis, daily=False, group=False):
+# ---------------- AGGREGATION ----------------def aggregate_data(df, kpis, daily=False, group=False):
 
     # Convert KPI columns to numeric
     for kpi in kpis:
@@ -115,28 +114,11 @@ def aggregate_data(df, kpis, daily=False, group=False):
     else:
         time_col = "Begin Time"
 
-    # ---------------- STEP 1: AGGREGATE PER CELL ----------------
-    agg_cell = {}
+    # ---------------- DAILY MODE ----------------
+    if daily:
 
-    for kpi in kpis:
-        if kpi in [
-            "DL Data Total Volume (Gbyte)",
-            "UL Data Total Volume (Gbyte)",
-            "Total Data Total Volume (Gbyte)",
-            "Ave RRC Connected Ue",
-            "Max RRC Connected Ue"
-        ]:
-            agg_cell[kpi] = "sum"   # volume / counters
-        else:
-            agg_cell[kpi] = "mean"  # PRB / rate KPIs
-
-    # Aggregate per cell first
-    cell_level = df.groupby([time_col, "Cell Name"], as_index=False).agg(agg_cell)
-
-    # ---------------- STEP 2: SITE AGGREGATION ----------------
-    if group:
-
-        agg_site = {}
+        # STEP 1: Aggregate per cell per day
+        agg_cell = {}
 
         for kpi in kpis:
             if kpi in [
@@ -146,14 +128,58 @@ def aggregate_data(df, kpis, daily=False, group=False):
                 "Ave RRC Connected Ue",
                 "Max RRC Connected Ue"
             ]:
-                agg_site[kpi] = "sum"   # sum across cells
+                agg_cell[kpi] = "sum"
             else:
-                agg_site[kpi] = "mean"  # average across cells
+                agg_cell[kpi] = "mean"
 
-        final_df = cell_level.groupby([time_col], as_index=False).agg(agg_site)
+        cell_level = df.groupby([time_col, "Cell Name"], as_index=False).agg(agg_cell)
 
+        # STEP 2: Site aggregation
+        if group:
+
+            agg_site = {}
+
+            for kpi in kpis:
+                if kpi in [
+                    "DL Data Total Volume (Gbyte)",
+                    "UL Data Total Volume (Gbyte)",
+                    "Total Data Total Volume (Gbyte)",
+                    "Ave RRC Connected Ue",
+                    "Max RRC Connected Ue"
+                ]:
+                    agg_site[kpi] = "sum"
+                else:
+                    agg_site[kpi] = "mean"
+
+            final_df = cell_level.groupby([time_col], as_index=False).agg(agg_site)
+
+        else:
+            final_df = cell_level
+
+    # ---------------- HOURLY MODE ----------------
     else:
-        final_df = cell_level
+
+        # ❗ DO NOT re-aggregate per cell
+        if group:
+
+            agg_site = {}
+
+            for kpi in kpis:
+                if kpi in [
+                    "DL Data Total Volume (Gbyte)",
+                    "UL Data Total Volume (Gbyte)",
+                    "Total Data Total Volume (Gbyte)",
+                    "Ave RRC Connected Ue",
+                    "Max RRC Connected Ue"
+                ]:
+                    agg_site[kpi] = "sum"
+                else:
+                    agg_site[kpi] = "mean"
+
+            final_df = df.groupby([time_col], as_index=False).agg(agg_site)
+
+        else:
+            final_df = df.copy()
 
     return final_df
 plot_df = aggregate_data(plot_df, selected_kpis, daily_option, group_option)
