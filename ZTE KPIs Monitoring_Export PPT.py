@@ -92,26 +92,34 @@ def aggregate_data(df, kpis, daily=False, group=False):
     if daily:
         df["Date"] = df["Begin Time"].dt.normalize()
     
-        # Detect sampling interval (in minutes)
+        # --- Detect sampling interval safely ---
         time_diffs = df["Begin Time"].sort_values().diff().dropna()
-        freq_minutes = int(time_diffs.mode()[0].total_seconds() / 60)
     
-        # Expected samples per day
+        if not time_diffs.empty:
+            freq_minutes = int(time_diffs.mode().iloc[0].total_seconds() / 60)
+        else:
+            freq_minutes = 60  # fallback to hourly
+    
+        # --- Avoid zero or invalid ---
+        if freq_minutes <= 0:
+            freq_minutes = 60
+    
         expected_samples = int(1440 / freq_minutes)
     
-        # Count actual samples per day
+        # --- Count per day ---
         counts = df.groupby("Date").size()
     
-        # Identify first & last day
-        first_day = counts.index.min()
-        last_day = counts.index.max()
+        # --- Get first & last safely ---
+        if not counts.empty:
+            first_day = counts.index.min()
+            last_day = counts.index.max()
     
-        # Remove ONLY if incomplete
-        if counts.get(first_day, 0) < expected_samples:
-            df = df[df["Date"] != first_day]
+            # Remove only if incomplete
+            if counts.get(first_day, 0) < expected_samples:
+                df = df[df["Date"] != first_day]
     
-        if counts.get(last_day, 0) < expected_samples:
-            df = df[df["Date"] != last_day]
+            if counts.get(last_day, 0) < expected_samples:
+                df = df[df["Date"] != last_day]
     
         time_col = "Date"
     else:
